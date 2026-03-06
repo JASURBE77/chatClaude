@@ -12,6 +12,7 @@ export function getSocket(): Socket {
   }
   return socket;
 }
+//sqalom
 
 export function disconnectSocket() {
   if (socket) {

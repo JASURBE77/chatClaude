@@ -7,7 +7,8 @@ export function getSocket(): Socket {
     const token = localStorage.getItem('token');
     socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001', {
       auth: { token },
-      transports: ['websocket'],
+      transports: ['polling', 'websocket'],
+      upgrade: true,
     });
   }
   return socket;

@@ -6,6 +6,27 @@ import { useAuthStore } from '../store/authStore';
 // CJS/ESM interop: Vite ba'zan default export'ni boshqacha beradi
 const Peer: typeof SimplePeer = (SimplePeer as any).default ?? SimplePeer;
 
+// Real tarmoqlarda P2P ishlashi uchun STUN + TURN serverlar kerak.
+// STUN — public IP topadi. TURN — agar to'g'ridan-to'g'ri ulanish imkonsiz
+// bo'lsa, traffic relay qiladi (NAT, firewall orqasidagi foydalanuvchilar uchun).
+const ICE_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    {
+      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    },
+  ],
+};
+
 export type CallState =
   | { status: 'idle' }
   | { status: 'calling';  targetUserId: string; targetName: string }
@@ -65,7 +86,7 @@ export function useCall() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
 
-      const peer = new Peer({ initiator: true, trickle: false, stream });
+      const peer = new Peer({ initiator: true, trickle: false, stream, config: ICE_CONFIG });
       peerRef.current = peer;
 
       // simple-peer offer signal yaratadi — backendga yuboramiz
@@ -126,7 +147,7 @@ export function useCall() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
 
-      const peer = new Peer({ initiator: false, trickle: false, stream });
+      const peer = new Peer({ initiator: false, trickle: false, stream, config: ICE_CONFIG });
       peerRef.current = peer;
 
       // simple-peer answer signal yaratadi — backendga yuboramiz

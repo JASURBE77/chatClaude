@@ -2,36 +2,32 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import SimplePeer from 'simple-peer';
 import { getSocket } from '../lib/socket';
 import { useAuthStore } from '../store/authStore';
+import api from '../lib/api';
 
 // CJS/ESM interop: Vite ba'zan default export'ni boshqacha beradi
 const Peer: typeof SimplePeer = (SimplePeer as any).default ?? SimplePeer;
 
-// Real tarmoqlarda P2P ishlashi uchun STUN + TURN serverlar kerak.
-// STUN — public IP topadi. TURN — agar to'g'ridan-to'g'ri ulanish imkonsiz
-// bo'lsa, traffic relay qiladi (NAT, firewall orqasidagi foydalanuvchilar uchun).
-const ICE_CONFIG: RTCConfiguration = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    {
-      urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-  ],
-};
+// Har qo'ng'iroqda Xirsys'dan yangi vaqtinchalik tokenlar olinadi
+async function fetchIceConfig(): Promise<RTCConfiguration> {
+  try {
+    const { data } = await api.get<RTCIceServer[]>('/chat/ice-servers');
+    return { iceServers: data };
+  } catch {
+    return {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+      ],
+    };
+  }
+}
 
 export type CallState =
   | { status: 'idle' }
-  | { status: 'calling';  targetUserId: string; targetName: string }
-  | { status: 'incoming'; callerId: string; callerName: string; signal: Peer.SignalData }
-  | { status: 'active';   remoteUserId: string; remoteName: string; duration: number };
+  | { status: 'calling';    targetUserId: string; targetName: string }
+  | { status: 'incoming';   callerId: string; callerName: string; signal: Peer.SignalData }
+  | { status: 'connecting'; remoteUserId: string; remoteName: string }
+  | { status: 'active';     remoteUserId: string; remoteName: string; duration: number };
 
 export function useCall() {
   const [callState, setCallState] = useState<CallState>({ status: 'idle' });
@@ -50,6 +46,14 @@ export function useCall() {
   const updateCallState = (next: CallState) => {
     callStateRef.current = next;
     setCallState(next);
+  };
+
+  // Joriy holatdan remote user ID ni olish uchun helper
+  const getRemoteId = (s: CallState): string | null => {
+    if (s.status === 'active')     return s.remoteUserId;
+    if (s.status === 'connecting') return s.remoteUserId;
+    if (s.status === 'calling')    return s.targetUserId;
+    return null;
   };
 
   /* ─── cleanup ──────────────────────────────────────────────── */
@@ -83,42 +87,40 @@ export function useCall() {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const [stream, iceConfig] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        fetchIceConfig(),
+      ]);
       localStreamRef.current = stream;
 
-      const peer = new Peer({ initiator: true, trickle: false, stream, config: ICE_CONFIG });
+      const peer = new Peer({ initiator: true, trickle: false, stream, config: iceConfig });
       peerRef.current = peer;
 
-      // simple-peer offer signal yaratadi — backendga yuboramiz
       peer.on('signal', (signal) => {
-        socket.emit('callUser', {
-          targetUserId,
-          signal,
-          callerName: user?.username || '',
-        });
+        socket.emit('callUser', { targetUserId, signal, callerName: user?.username || '' });
       });
 
-      // Boshqa tomondan audio kelganda
       peer.on('stream', (remoteStream) => {
         const el = document.getElementById('remote-audio') as HTMLAudioElement | null;
         if (el) el.srcObject = remoteStream;
       });
 
-      // P2P ulanish o'rnatildi
       peer.on('connect', () => {
         startTimer();
         updateCallState({ status: 'active', remoteUserId: targetUserId, remoteName: targetName, duration: 0 });
       });
 
       peer.on('close', () => {
-        const s = callStateRef.current;
-        const rid = s.status === 'active' ? s.remoteUserId : s.status === 'calling' ? s.targetUserId : null;
+        const rid = getRemoteId(callStateRef.current);
         if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
         cleanup();
       });
 
+      // Xato bo'lsa ikkinchi tomonga xabar yuboramiz
       peer.on('error', () => {
+        const rid = getRemoteId(callStateRef.current);
+        if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
         cleanup();
       });
@@ -144,13 +146,18 @@ export function useCall() {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const [stream, iceConfig] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        fetchIceConfig(),
+      ]);
       localStreamRef.current = stream;
 
-      const peer = new Peer({ initiator: false, trickle: false, stream, config: ICE_CONFIG });
+      // Connecting holatiga o'tamiz — modal yo'qolmaydi, "Connecting..." ko'rinadi
+      updateCallState({ status: 'connecting', remoteUserId: callerId, remoteName: callerName });
+
+      const peer = new Peer({ initiator: false, trickle: false, stream, config: iceConfig });
       peerRef.current = peer;
 
-      // simple-peer answer signal yaratadi — backendga yuboramiz
       peer.on('signal', (answerSignal) => {
         socket.emit('answerCall', { callerId, signal: answerSignal });
       });
@@ -165,18 +172,23 @@ export function useCall() {
         updateCallState({ status: 'active', remoteUserId: callerId, remoteName: callerName, duration: 0 });
       });
 
+      // Close/error bo'lsa callerni ham xabardor qilamiz
       peer.on('close', () => {
+        const rid = getRemoteId(callStateRef.current);
+        if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
         cleanup();
       });
 
       peer.on('error', () => {
+        const rid = getRemoteId(callStateRef.current);
+        if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
         cleanup();
       });
 
       // Caller'ning signal'ini beramiz — peer javob tayyorlaydi
-      // Normalize: ba'zi brauzerlarda type null keladi, offer ekanligini aniq belgilaymiz
+      // Normalize: ba'zi brauzerlarda type null keladi
       const signalToUse: Peer.SignalData =
         (signal as any).sdp && !(signal as any).type
           ? { ...(signal as any), type: 'offer' }
@@ -201,8 +213,7 @@ export function useCall() {
 
   /* ─── qo'ng'iroqni tugatish ─────────────────────────────────── */
   const endCall = useCallback(() => {
-    const s = callStateRef.current;
-    const rid = s.status === 'active' ? s.remoteUserId : s.status === 'calling' ? s.targetUserId : null;
+    const rid = getRemoteId(callStateRef.current);
     if (rid) socket.emit('endCall', { targetUserId: rid });
     updateCallState({ status: 'idle' });
     cleanup();
@@ -229,7 +240,6 @@ export function useCall() {
 
   /* ─── socket eventlar ───────────────────────────────────────── */
   useEffect(() => {
-    // Kiruvchi qo'ng'iroq — signal + caller ma'lumotlari keladi
     socket.on('incomingCall', (data: { callerId: string; callerName: string; signal: Peer.SignalData }) => {
       if (callStateRef.current.status !== 'idle') {
         socket.emit('rejectCall', { callerId: data.callerId });
@@ -238,8 +248,12 @@ export function useCall() {
       updateCallState({ status: 'incoming', ...data });
     });
 
-    // Qo'ng'iroq qabul qilindi — answer signal keladi, peer'ga beramiz
+    // Callee qabul qildi — caller connecting holatiga o'tadi
     socket.on('callAnswered', ({ signal }: { signal: Peer.SignalData }) => {
+      const s = callStateRef.current;
+      if (s.status === 'calling') {
+        updateCallState({ status: 'connecting', remoteUserId: s.targetUserId, remoteName: s.targetName });
+      }
       peerRef.current?.signal(signal);
     });
 

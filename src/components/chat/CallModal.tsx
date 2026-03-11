@@ -40,7 +40,7 @@ export default function CallModal({ callState, onAccept, onReject, onEnd, onTogg
       ? callState.targetName
       : callState.status === 'incoming'
       ? callState.callerName
-      : callState.remoteName;
+      : callState.remoteName; // connecting | active
 
   const color = avatarColor(remoteName);
 
@@ -56,7 +56,7 @@ export default function CallModal({ callState, onAccept, onReject, onEnd, onTogg
           style={{ background: 'linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)' }}
         >
           {/* Sound waves animation */}
-          {(callState.status === 'calling' || callState.status === 'incoming') && (
+          {(callState.status === 'calling' || callState.status === 'incoming' || callState.status === 'connecting') && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               {[1, 2, 3].map((i) => (
                 <div
@@ -103,6 +103,12 @@ export default function CallModal({ callState, onAccept, onReject, onEnd, onTogg
                   Incoming voice call
                 </span>
               )}
+              {callState.status === 'connecting' && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full animate-pulse" />
+                  Connecting...
+                </span>
+              )}
               {callState.status === 'active' && (
                 <span className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
@@ -142,8 +148,8 @@ export default function CallModal({ callState, onAccept, onReject, onEnd, onTogg
               </div>
             )}
 
-            {/* CALLING: Cancel */}
-            {callState.status === 'calling' && (
+            {/* CALLING / CONNECTING: Cancel */}
+            {(callState.status === 'calling' || callState.status === 'connecting') && (
               <button
                 onClick={onEnd}
                 className="w-16 h-16 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105 active:scale-95"

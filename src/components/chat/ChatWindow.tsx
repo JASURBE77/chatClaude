@@ -50,27 +50,27 @@ export default function ChatWindow({ room, onBack, onStartCall }: Props) {
 
   const getRoomDisplayName = () => {
     if (room.type === 'group') return room.name;
-    const other = room.members.find((m) => m._id !== user?._id);
+    const other = room.members.find((m) => String(m._id) !== String(user?._id));
     return other?.username || 'Chat';
   };
 
   const getRoomAvatar = () => {
     if (room.type === 'group') return undefined;
-    const other = room.members.find((m) => m._id !== user?._id);
-    return other?.avatar;
+    const other = room.members.find((m) => String(m._id) !== String(user?._id));
+    return other?.avatar || undefined;
   };
 
   const isOtherOnline = () => {
     if (room.type === 'group') return false;
-    const other = room.members.find((m) => m._id !== user?._id);
-    return other ? onlineUsers.has(other._id) : false;
+    const other = room.members.find((m) => String(m._id) !== String(user?._id));
+    return other ? onlineUsers.has(String(other._id)) : false;
   };
 
   const name = getRoomDisplayName();
   const color = avatarColor(name);
 
   // Get the other user for direct calls
-  const otherUser = room.type === 'direct' ? room.members.find((m) => m._id !== user?._id) : null;
+  const otherUser = room.type === 'direct' ? room.members.find((m) => String(m._id) !== String(user?._id)) : null;
 
   const handleCall = () => {
     if (!otherUser) return;

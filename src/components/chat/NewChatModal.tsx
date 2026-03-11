@@ -96,7 +96,7 @@ export default function NewChatModal({ open, onClose }: NewChatModalProps) {
             className="flex items-center gap-3 px-2 py-2.5 rounded-2xl cursor-pointer hover:bg-blue-50 transition-all group"
           >
             <Avatar
-              src={u.avatar}
+              src={u.avatar || undefined}
               size={44}
               style={{ background: avatarColor(u.username), fontWeight: 700, flexShrink: 0 }}
             >

@@ -15,7 +15,7 @@ export default function ChatPage() {
   useSocket();
 
   // Global call handler — active regardless of which chat is open
-  const { callState, startCall, acceptCall, rejectCall, endCall, toggleMute, isMuted } = useCall();
+  const { callState, startCall, acceptCall, rejectCall, endCall, toggleMute, isMuted, toggleSpeaker, isSpeaker } = useCall();
 
   useEffect(() => {
     api.get('/chat/rooms').then((res) => {
@@ -29,7 +29,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: '#e8edf2' }}>
+    <div className="flex app-height overflow-hidden" style={{ background: '#e8edf2' }}>
       {/* Global call modal — shows incoming call from anyone, anywhere */}
       <CallModal
         callState={callState}
@@ -38,6 +38,8 @@ export default function ChatPage() {
         onEnd={endCall}
         onToggleMute={toggleMute}
         isMuted={isMuted}
+        onToggleSpeaker={toggleSpeaker}
+        isSpeaker={isSpeaker}
       />
       <audio id="remote-audio" autoPlay playsInline style={{ display: 'none' }} />
       {/* === SIDEBAR === */}

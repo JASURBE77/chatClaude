@@ -21,9 +21,11 @@ interface Props {
   onEnd: () => void;
   onToggleMute: () => void;
   isMuted: boolean;
+  onToggleSpeaker: () => void;
+  isSpeaker: boolean;
 }
 
-export default function CallModal({ callState, onAccept, onReject, onEnd, onToggleMute, isMuted }: Props) {
+export default function CallModal({ callState, onAccept, onReject, onEnd, onToggleMute, isMuted, onToggleSpeaker, isSpeaker }: Props) {
   // Vibrate on incoming call
   useEffect(() => {
     if (callState.status === 'incoming') {
@@ -181,10 +183,11 @@ export default function CallModal({ callState, onAccept, onReject, onEnd, onTogg
                 {/* Speaker */}
                 <div className="flex flex-col items-center gap-2">
                   <button
-                    className="w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-105"
-                    style={{ background: 'rgba(255,255,255,0.15)' }}
+                    onClick={onToggleSpeaker}
+                    className="w-14 h-14 rounded-full flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+                    style={{ background: isSpeaker ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.15)' }}
                   >
-                    <svg viewBox="0 0 24 24" fill="white" className="w-6 h-6">
+                    <svg viewBox="0 0 24 24" fill={isSpeaker ? '#1a1a2e' : 'white'} className="w-6 h-6">
                       <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
                     </svg>
                   </button>

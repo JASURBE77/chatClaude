@@ -64,7 +64,7 @@ export default function ProfilePage() {
         <div className="absolute -bottom-12 left-1/2 -translate-x-1/2">
           <div className="relative">
             <Avatar
-              src={user?.avatar}
+              src={user?.avatar || undefined}
               size={96}
               style={{ background: color, fontSize: 36, fontWeight: 700, border: '4px solid white', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}
             >

@@ -47,20 +47,20 @@ export default function Sidebar({ onSelectRoom }: SidebarProps) {
 
   function getRoomName(room: Room, myId: string) {
     if (room.type === 'group') return room.name;
-    const other = room.members.find((m) => m._id !== myId);
+    const other = room.members.find((m) => String(m._id) !== String(myId));
     return other?.username || 'Unknown';
   }
 
   function getRoomAvatar(room: Room, myId: string) {
     if (room.type === 'group') return null;
-    const other = room.members.find((m) => m._id !== myId);
+    const other = room.members.find((m) => String(m._id) !== String(myId));
     return other?.avatar || null;
   }
 
   function isRoomOnline(room: Room, myId: string) {
     if (room.type === 'group') return false;
-    const other = room.members.find((m) => m._id !== myId);
-    return other ? onlineUsers.has(other._id) : false;
+    const other = room.members.find((m) => String(m._id) !== String(myId));
+    return other ? onlineUsers.has(String(other._id)) : false;
   }
 
   function getLastMessagePreview(room: Room) {
@@ -100,7 +100,7 @@ export default function Sidebar({ onSelectRoom }: SidebarProps) {
         >
           <div className="relative cursor-pointer">
             <Avatar
-              src={user?.avatar}
+              src={user?.avatar || undefined}
               size={38}
               style={{ background: avatarColor(user?.username || 'U'), fontWeight: 700 }}
             >
@@ -176,7 +176,7 @@ export default function Sidebar({ onSelectRoom }: SidebarProps) {
               {/* Avatar */}
               <div className="relative flex-shrink-0">
                 <Avatar
-                  src={avatar}
+                  src={avatar || undefined}
                   size={50}
                   style={{ background: color, fontWeight: 700, fontSize: 18 }}
                 >

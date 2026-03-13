@@ -28,7 +28,7 @@ async function fetchIceConfig(): Promise<RTCConfiguration> {
 export type CallState =
   | { status: 'idle' }
   | { status: 'calling';    targetUserId: string; targetName: string }
-  | { status: 'incoming';   callerId: string; callerName: string; signal: Peer.SignalData }
+  | { status: 'incoming';   callerId: string; callerName: string; signal: SimplePeer.SignalData }
   | { status: 'connecting'; remoteUserId: string; remoteName: string }
   | { status: 'active';     remoteUserId: string; remoteName: string; duration: number };
 
@@ -231,7 +231,7 @@ export function useCall() {
       });
 
       // Caller'ning offer signal'ini beramiz
-      const signalToUse: Peer.SignalData =
+      const signalToUse: SimplePeer.SignalData =
         (signal as any).sdp && !(signal as any).type
           ? { ...(signal as any), type: 'offer' }
           : signal;
@@ -301,7 +301,7 @@ export function useCall() {
 
   /* ─── socket eventlar ───────────────────────────────────────── */
   useEffect(() => {
-    socket.on('incomingCall', (data: { callerId: string; callerName: string; signal: Peer.SignalData }) => {
+    socket.on('incomingCall', (data: { callerId: string; callerName: string; signal: SimplePeer.SignalData }) => {
       if (callStateRef.current.status !== 'idle') {
         socket.emit('rejectCall', { callerId: data.callerId });
         return;
@@ -310,7 +310,7 @@ export function useCall() {
     });
 
     // Callee qabul qildi — caller connecting holatiga o'tadi
-    socket.on('callAnswered', ({ signal }: { signal: Peer.SignalData }) => {
+    socket.on('callAnswered', ({ signal }: { signal: SimplePeer.SignalData }) => {
       const s = callStateRef.current;
       if (s.status === 'calling') {
         updateCallState({ status: 'connecting', remoteUserId: s.targetUserId, remoteName: s.targetName });

@@ -39,7 +39,7 @@ export function useCall() {
   const { user } = useAuthStore();
 
   const callStateRef      = useRef<CallState>({ status: 'idle' });
-  const peerRef           = useRef<Peer.Instance | null>(null);
+  const peerRef           = useRef<SimplePeer.Instance | null>(null);
   const localStreamRef    = useRef<MediaStream | null>(null);
   const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
   const callTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null);

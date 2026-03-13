@@ -231,10 +231,10 @@ export function useCall() {
       });
 
       // Caller'ning offer signal'ini beramiz
-      const signalToUse: SimplePeer.SignalData =
-        (signal as any).sdp && !(signal as any).type
-          ? { ...(signal as any), type: 'offer' }
-          : signal;
+      // type: null kelsa (ba'zi brauzerlarda) → 'offer' deb qabul qilamiz
+      const signalToUse: SimplePeer.SignalData = (signal as any).sdp
+        ? { ...(signal as any), type: (signal as any).type || 'offer' }
+        : signal;
       peer.signal(signalToUse);
 
       // 35 soniya ichida ulanmasa xato ko'rsatamiz

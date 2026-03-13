@@ -9,7 +9,7 @@ import CallModal from '../components/chat/CallModal';
 import { MessageOutlined } from '@ant-design/icons';
 
 export default function ChatPage() {
-  const { setRooms, activeRoom, setActiveRoom } = useChatStore();
+  const { setRooms, activeRoom, setActiveRoom, setUserOnline } = useChatStore();
   const [showSidebar, setShowSidebar] = useState(true);
 
   useSocket();
@@ -20,6 +20,12 @@ export default function ChatPage() {
   useEffect(() => {
     api.get('/chat/rooms').then((res) => {
       setRooms(res.data);
+      // DB dagi isOnline ma'lumotidan boshlang'ich holat
+      res.data.forEach((room: any) => {
+        room.members?.forEach((m: any) => {
+          if (m.isOnline) setUserOnline(m._id, true);
+        });
+      });
     });
   }, []);
 

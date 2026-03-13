@@ -14,8 +14,18 @@ export function getSocket(): Socket {
       timeout: 20000,
     });
 
+    let connectErrorCount = 0;
     socket.on('connect_error', (err) => {
       console.warn('Socket connect error:', err.message);
+      connectErrorCount++;
+      // 3 marta urinishdan keyin foydalanuvchini xabardor qilamiz
+      if (connectErrorCount === 3) {
+        alert(`Server bilan ulanishda xato: ${err.message}\nIltimos, sahifani yangilang yoki keyinroq urinib ko'ring.`);
+      }
+    });
+
+    socket.on('connect', () => {
+      connectErrorCount = 0;
     });
   }
   return socket;

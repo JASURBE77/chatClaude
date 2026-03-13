@@ -11,8 +11,11 @@ const Peer: typeof SimplePeer = (SimplePeer as any).default ?? SimplePeer;
 async function fetchIceConfig(): Promise<RTCConfiguration> {
   try {
     const { data } = await api.get<RTCIceServer[]>('/chat/ice-servers');
+    if (!data || data.length === 0) throw new Error('Empty ICE servers response');
+    console.log('[ICE] Servers loaded:', data.length, 'servers');
     return { iceServers: data };
-  } catch {
+  } catch (err) {
+    console.warn('[ICE] Fetch failed, using fallback STUN:', err);
     return {
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -35,11 +38,12 @@ export function useCall() {
   const [isSpeaker, setIsSpeaker] = useState(false);
   const { user } = useAuthStore();
 
-  const callStateRef   = useRef<CallState>({ status: 'idle' });
-  const peerRef        = useRef<Peer.Instance | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
-  const durationRef    = useRef(0);
+  const callStateRef      = useRef<CallState>({ status: 'idle' });
+  const peerRef           = useRef<Peer.Instance | null>(null);
+  const localStreamRef    = useRef<MediaStream | null>(null);
+  const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
+  const callTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const durationRef       = useRef(0);
 
   const socket = getSocket();
 
@@ -48,7 +52,6 @@ export function useCall() {
     setCallState(next);
   };
 
-  // Joriy holatdan remote user ID ni olish uchun helper
   const getRemoteId = (s: CallState): string | null => {
     if (s.status === 'active')     return s.remoteUserId;
     if (s.status === 'connecting') return s.remoteUserId;
@@ -58,7 +61,8 @@ export function useCall() {
 
   /* ─── cleanup ──────────────────────────────────────────────── */
   const cleanup = useCallback(() => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (timerRef.current)    { clearInterval(timerRef.current); timerRef.current = null; }
+    if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
     localStreamRef.current?.getTracks().forEach((t) => t.stop());
     localStreamRef.current = null;
     peerRef.current?.destroy();
@@ -93,11 +97,21 @@ export function useCall() {
       ]);
       localStreamRef.current = stream;
 
-      const peer = new Peer({ initiator: true, trickle: false, stream, config: iceConfig });
+      // trickle: true — ICE candidate'lar gather bo'lguncha kutmaymiz,
+      // birinchi signal (offer) darhol yuboriladi. Bu TURN bilan ancha tez ishlaydi.
+      const peer = new Peer({ initiator: true, trickle: true, stream, config: iceConfig });
       peerRef.current = peer;
 
+      let offerSent = false;
       peer.on('signal', (signal) => {
-        socket.emit('callUser', { targetUserId, signal, callerName: user?.username || '' });
+        if (!offerSent) {
+          // Birinchi signal — offer (SDP). Qo'ng'iroqni boshlaymiz.
+          offerSent = true;
+          socket.emit('callUser', { targetUserId, signal, callerName: user?.username || '' });
+        } else {
+          // Keyingi signallar — trickle ICE candidate'lar
+          socket.emit('callTrickle', { targetUserId, candidate: signal });
+        }
       });
 
       peer.on('stream', (remoteStream) => {
@@ -106,6 +120,7 @@ export function useCall() {
       });
 
       peer.on('connect', () => {
+        if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
         startTimer();
         updateCallState({ status: 'active', remoteUserId: targetUserId, remoteName: targetName, duration: 0 });
       });
@@ -117,8 +132,9 @@ export function useCall() {
         cleanup();
       });
 
-      // Xato bo'lsa ikkinchi tomonga xabar yuboramiz
-      peer.on('error', () => {
+      peer.on('error', (err: Error) => {
+        console.error('[WebRTC] Peer error:', err);
+        alert(`Qo'ng'iroqda xato: ${err?.message || 'Aloqa o\'rnatilmadi. Xirsys TURN server sozlamalarini tekshiring.'}`);
         const rid = getRemoteId(callStateRef.current);
         if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
@@ -126,8 +142,26 @@ export function useCall() {
       });
 
       updateCallState({ status: 'calling', targetUserId, targetName });
-    } catch (err) {
-      console.error('startCall error', err);
+
+      // 35 soniyadan keyin javob bo'lmasa avtomatik bekor qilamiz
+      callTimeoutRef.current = setTimeout(() => {
+        if (callStateRef.current.status === 'calling' || callStateRef.current.status === 'connecting') {
+          alert(`Qo'ng'iroqqa javob yo'q (35 soniya). Foydalanuvchi band yoki ulanish o'rnatilmadi.`);
+          socket.emit('endCall', { targetUserId });
+          updateCallState({ status: 'idle' });
+          cleanup();
+        }
+      }, 35000);
+
+    } catch (err: any) {
+      console.error('[startCall] error:', err);
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        alert("Mikrofon ruxsati rad etildi. Brauzer sozlamalarida mikrofon ruxsatini bering.");
+      } else if (err?.name === 'NotFoundError') {
+        alert("Mikrofon topilmadi. Qurilmangizda mikrofon borligini tekshiring.");
+      } else {
+        alert(`Qo'ng'iroq boshlashda xato: ${err?.message || err}`);
+      }
       updateCallState({ status: 'idle' });
       cleanup();
     }
@@ -152,14 +186,21 @@ export function useCall() {
       ]);
       localStreamRef.current = stream;
 
-      // Connecting holatiga o'tamiz — modal yo'qolmaydi, "Connecting..." ko'rinadi
       updateCallState({ status: 'connecting', remoteUserId: callerId, remoteName: callerName });
 
-      const peer = new Peer({ initiator: false, trickle: false, stream, config: iceConfig });
+      const peer = new Peer({ initiator: false, trickle: true, stream, config: iceConfig });
       peerRef.current = peer;
 
+      let answerSent = false;
       peer.on('signal', (answerSignal) => {
-        socket.emit('answerCall', { callerId, signal: answerSignal });
+        if (!answerSent) {
+          // Birinchi signal — answer (SDP)
+          answerSent = true;
+          socket.emit('answerCall', { callerId, signal: answerSignal });
+        } else {
+          // Trickle ICE candidate'lar
+          socket.emit('callTrickle', { targetUserId: callerId, candidate: answerSignal });
+        }
       });
 
       peer.on('stream', (remoteStream) => {
@@ -168,11 +209,11 @@ export function useCall() {
       });
 
       peer.on('connect', () => {
+        if (callTimeoutRef.current) { clearTimeout(callTimeoutRef.current); callTimeoutRef.current = null; }
         startTimer();
         updateCallState({ status: 'active', remoteUserId: callerId, remoteName: callerName, duration: 0 });
       });
 
-      // Close/error bo'lsa callerni ham xabardor qilamiz
       peer.on('close', () => {
         const rid = getRemoteId(callStateRef.current);
         if (rid) socket.emit('endCall', { targetUserId: rid });
@@ -180,22 +221,42 @@ export function useCall() {
         cleanup();
       });
 
-      peer.on('error', () => {
+      peer.on('error', (err: Error) => {
+        console.error('[WebRTC] Peer error (callee):', err);
+        alert(`Qo'ng'iroqda xato: ${err?.message || 'Aloqa o\'rnatilmadi. Xirsys TURN server sozlamalarini tekshiring.'}`);
         const rid = getRemoteId(callStateRef.current);
         if (rid) socket.emit('endCall', { targetUserId: rid });
         updateCallState({ status: 'idle' });
         cleanup();
       });
 
-      // Caller'ning signal'ini beramiz — peer javob tayyorlaydi
-      // Normalize: ba'zi brauzerlarda type null keladi
+      // Caller'ning offer signal'ini beramiz
       const signalToUse: Peer.SignalData =
         (signal as any).sdp && !(signal as any).type
           ? { ...(signal as any), type: 'offer' }
           : signal;
       peer.signal(signalToUse);
-    } catch (err) {
-      console.error('acceptCall error', err);
+
+      // 35 soniya ichida ulanmasa xato ko'rsatamiz
+      callTimeoutRef.current = setTimeout(() => {
+        if (callStateRef.current.status === 'connecting') {
+          alert(`Ulanish o'rnatilmadi (35 soniya). Xirsys TURN server sozlamalarini tekshiring.`);
+          const rid = getRemoteId(callStateRef.current);
+          if (rid) socket.emit('endCall', { targetUserId: rid });
+          updateCallState({ status: 'idle' });
+          cleanup();
+        }
+      }, 35000);
+
+    } catch (err: any) {
+      console.error('[acceptCall] error:', err);
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        alert("Mikrofon ruxsati rad etildi. Brauzer sozlamalarida mikrofon ruxsatini bering.");
+      } else if (err?.name === 'NotFoundError') {
+        alert("Mikrofon topilmadi. Qurilmangizda mikrofon borligini tekshiring.");
+      } else {
+        alert(`Qo'ng'iroqni qabul qilishda xato: ${err?.message || err}`);
+      }
       socket.emit('rejectCall', { callerId });
       updateCallState({ status: 'idle' });
       cleanup();
@@ -257,7 +318,19 @@ export function useCall() {
       peerRef.current?.signal(signal);
     });
 
-    socket.on('callRejected', () => {
+    // Trickle ICE candidate keldi — peer'ga beramiz
+    socket.on('callTrickle', ({ candidate }: { candidate: any }) => {
+      if (peerRef.current) {
+        try {
+          peerRef.current.signal(candidate);
+        } catch (e) {
+          console.warn('[callTrickle] signal error:', e);
+        }
+      }
+    });
+
+    socket.on('callRejected', (data?: { by?: string }) => {
+      alert(`Qo'ng'iroq rad etildi${data?.by ? ` (${data.by} tomonidan)` : ''}`);
       updateCallState({ status: 'idle' });
       cleanup();
     });
@@ -267,7 +340,8 @@ export function useCall() {
       cleanup();
     });
 
-    socket.on('callFailed', () => {
+    socket.on('callFailed', (data?: { reason?: string }) => {
+      alert(`Qo'ng'iroq amalga oshmadi: ${data?.reason || 'Foydalanuvchi offline yoki band'}`);
       updateCallState({ status: 'idle' });
       cleanup();
     });
@@ -275,6 +349,7 @@ export function useCall() {
     return () => {
       socket.off('incomingCall');
       socket.off('callAnswered');
+      socket.off('callTrickle');
       socket.off('callRejected');
       socket.off('callEnded');
       socket.off('callFailed');

@@ -25,6 +25,11 @@ export function useSocket() {
       setTyping(data);
     });
 
+    // Ulanish vaqtida allaqachon online bo'lgan foydalanuvchilar ro'yxati
+    socket.on('onlineUsersList', ({ userIds }: { userIds: string[] }) => {
+      userIds.forEach((id) => setUserOnline(id, true));
+    });
+
     socket.on('userOnline', ({ userId }: { userId: string }) => {
       setUserOnline(userId, true);
     });
@@ -54,6 +59,7 @@ export function useSocket() {
     return () => {
       socket.off('newMessage');
       socket.off('userTyping');
+      socket.off('onlineUsersList');
       socket.off('userOnline');
       socket.off('userOffline');
       socket.off('messageReaction');

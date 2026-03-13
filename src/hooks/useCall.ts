@@ -38,12 +38,14 @@ export function useCall() {
   const [isSpeaker, setIsSpeaker] = useState(false);
   const { user } = useAuthStore();
 
-  const callStateRef      = useRef<CallState>({ status: 'idle' });
-  const peerRef           = useRef<SimplePeer.Instance | null>(null);
-  const localStreamRef    = useRef<MediaStream | null>(null);
-  const timerRef          = useRef<ReturnType<typeof setInterval> | null>(null);
-  const callTimeoutRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const durationRef       = useRef(0);
+  const callStateRef        = useRef<CallState>({ status: 'idle' });
+  const peerRef             = useRef<SimplePeer.Instance | null>(null);
+  const localStreamRef      = useRef<MediaStream | null>(null);
+  const timerRef            = useRef<ReturnType<typeof setInterval> | null>(null);
+  const callTimeoutRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const durationRef         = useRef(0);
+  // Peer yaratilishidan oldin kelgan trickle candidate'larni saqlaymiz
+  const pendingCandidates   = useRef<any[]>([]);
 
   const socket = getSocket();
 
@@ -67,6 +69,7 @@ export function useCall() {
     localStreamRef.current = null;
     peerRef.current?.destroy();
     peerRef.current = null;
+    pendingCandidates.current = [];
     durationRef.current = 0;
     setIsMuted(false);
     setIsSpeaker(false);
@@ -237,6 +240,12 @@ export function useCall() {
         : signal;
       peer.signal(signalToUse);
 
+      // Peer yaratilishidan oldin kelgan trickle candidate'larni apply qilamiz
+      pendingCandidates.current.forEach((c) => {
+        try { peer.signal(c); } catch (_) {}
+      });
+      pendingCandidates.current = [];
+
       // 35 soniya ichida ulanmasa xato ko'rsatamiz
       callTimeoutRef.current = setTimeout(() => {
         if (callStateRef.current.status === 'connecting') {
@@ -318,7 +327,7 @@ export function useCall() {
       peerRef.current?.signal(signal);
     });
 
-    // Trickle ICE candidate keldi — peer'ga beramiz
+    // Trickle ICE candidate keldi — peer tayyor bo'lsa apply, bo'lmasa queue ga
     socket.on('callTrickle', ({ candidate }: { candidate: any }) => {
       if (peerRef.current) {
         try {
@@ -326,6 +335,9 @@ export function useCall() {
         } catch (e) {
           console.warn('[callTrickle] signal error:', e);
         }
+      } else {
+        // Peer hali yaratilmagan (callee accept bosmagan) — saqlab qo'yamiz
+        pendingCandidates.current.push(candidate);
       }
     });
 
